@@ -590,10 +590,6 @@ export default function YouTubeContentExpansionDashboard() {
                       <h3 className="font-semibold">댓글 + 답글 전체 수집</h3>
                       <p className="mt-1 text-sm text-zinc-500">페이지네이션과 답글 추가 조회를 끝까지 진행합니다.</p>
                     </div>
-                    <span className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-2.5 py-1 text-xs text-zinc-400">
-                      {collectingComments ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-zinc-600 border-t-zinc-100" /> : null}
-                      {commentProgress.toLocaleString()} records · {commentStatus}
-                    </span>
                   </div>
                   <div className="mt-4 flex gap-2">
                     <button
