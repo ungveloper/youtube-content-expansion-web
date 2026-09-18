@@ -146,7 +146,7 @@ ${goalLines || "- 조사 목적이 선택되지 않았다. 사용자에게 확�
 ${platformLines || "플랫폼이 선택되지 않았다. 사용자에게 확인한다."}
 
 ## 5. 전역 원칙
-${CORE_PRINCIPLES.map((item) => '- ${item}').join("\n")}
+${CORE_PRINCIPLES.map((item) => "- " + item).join("\n")}
 - Raw Evidence Preservation: 요약 때문에 반례·소수 의견·구체적 경험담이 사라지지 않게 원문 ID를 남긴다.
 - No Popularity Shortcut: 좋아요가 높은 댓글만 분석하지 않는다. 좋아요 0이어도 여러 사람이 반복한 질문은 중요할 수 있다.
 - No Frequency Shortcut: 많이 나온 질문이 항상 최고의 콘텐츠는 아니다. 검색성·차별성·사업 적합성·제작 가능성까지 검증한다.
