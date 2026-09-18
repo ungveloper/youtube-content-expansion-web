@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { GOAL_OPTIONS, PLATFORM_OPTIONS } from "@/lib/content-expansion/constants";
-import { buildChatGPTProBundle, buildLaunchPrompt } from "@/lib/content-expansion/prompt-builder";
+import { buildChatGPTProBundle, buildLaunchPrompt, buildQuickRecommendationPrompt } from "@/lib/content-expansion/prompt-builder";
 import {
   createResearchPackage,
   researchPackageToMarkdown,
@@ -159,6 +159,7 @@ export default function YouTubeContentExpansionDashboard() {
   const [commentProgress, setCommentProgress] = useState(0);
   const [commentStatus, setCommentStatus] = useState<"not_started" | "partial" | "complete">("not_started");
   const stopCollectionRef = useRef(false);
+  const collectionRunRef = useRef(0);
 
   const sortedVideos = useMemo(() => {
     const cloned = [...videos];
@@ -171,6 +172,9 @@ export default function YouTubeContentExpansionDashboard() {
   }, [videos, sortBy]);
 
   function resetSource(mode: SourceMode) {
+    collectionRunRef.current += 1;
+    stopCollectionRef.current = true;
+    setCollectingComments(false);
     setSourceMode(mode);
     setQuery("");
     setChannel(null);
@@ -192,6 +196,9 @@ export default function YouTubeContentExpansionDashboard() {
     const detectedMode = detectSourceModeFromInput(value);
     if (!detectedMode || detectedMode === sourceMode) return;
 
+    collectionRunRef.current += 1;
+    stopCollectionRef.current = true;
+    setCollectingComments(false);
     setSourceMode(detectedMode);
     setChannel(null);
     setVideos([]);
@@ -232,13 +239,14 @@ export default function YouTubeContentExpansionDashboard() {
     setCommentProgress(0);
     setCommentStatus("not_started");
     setTranscript("");
-    toast.success("분석할 영상을 선택했습니다. 댓글과 답글 전체 수집을 진행해주세요.");
+    toast.success("분석할 영상을 선택했습니다. 댓글과 답글을 자동으로 수집합니다.");
     if (contextMode === "channel") {
       setChannelHistory(videos.filter((item) => item.channelId === video.channelId));
     } else {
       setChannelHistory([]);
       void loadChannelContext(video);
     }
+    void collectAllComments(video);
   }
 
   async function searchSource() {
@@ -257,6 +265,9 @@ export default function YouTubeContentExpansionDashboard() {
       );
     }
 
+    collectionRunRef.current += 1;
+    stopCollectionRef.current = true;
+    setCollectingComments(false);
     setLoading(true);
     setError("");
     setSelectedVideo(null);
@@ -296,32 +307,57 @@ export default function YouTubeContentExpansionDashboard() {
     }
   }
 
-  async function collectAllComments() {
-    if (!selectedVideo) return;
-    const toastId = toast.loading("댓글과 답글 전체 수집을 시작했습니다.");
+  async function collectAllComments(videoOverride?: YouTubeVideo) {
+    const targetVideo = videoOverride ?? selectedVideo;
+    if (!targetVideo) return;
+
+    const runId = collectionRunRef.current + 1;
+    collectionRunRef.current = runId;
+    stopCollectionRef.current = false;
+
+    if (targetVideo.commentCount === 0) {
+      setComments([]);
+      setCommentProgress(0);
+      setCommentStatus("complete");
+      setCollectingComments(false);
+      toast.info("이 영상에는 수집할 공개 댓글이 없습니다. 댓글 없이 다음 단계로 진행합니다.");
+      return;
+    }
+
+    const toastId = toast.loading("댓글과 답글 전체를 자동 수집하고 있습니다.");
     setCollectingComments(true);
     setError("");
     setComments([]);
     setCommentProgress(0);
     setCommentStatus("partial");
-    stopCollectionRef.current = false;
 
     try {
       let pageToken = "";
       const collected: YouTubeComment[] = [];
       do {
         const params = new URLSearchParams({
-          videoId: selectedVideo.id,
+          videoId: targetVideo.id,
           order: "time",
           includeAllReplies: "true",
         });
         if (pageToken) params.set("pageToken", pageToken);
         const data = await readJson(await fetch(`/api/youtube/comments?${params.toString()}`));
+
+        if (collectionRunRef.current !== runId) {
+          toast.dismiss(toastId);
+          return;
+        }
+
         collected.push(...data.comments);
         setComments([...collected]);
         setCommentProgress(collected.length);
         pageToken = data.nextPageToken ?? "";
-      } while (pageToken && !stopCollectionRef.current);
+      } while (pageToken && !stopCollectionRef.current && collectionRunRef.current === runId);
+
+      if (collectionRunRef.current !== runId) {
+        toast.dismiss(toastId);
+        return;
+      }
 
       if (stopCollectionRef.current) {
         setCommentStatus("partial");
@@ -331,12 +367,15 @@ export default function YouTubeContentExpansionDashboard() {
         toast.success(`댓글과 답글 ${collected.length.toLocaleString()}개 수집을 완료했습니다. 다음 단계가 열렸습니다.`, { id: toastId });
       }
     } catch (err) {
+      if (collectionRunRef.current !== runId) return;
       const message = err instanceof Error ? err.message : "댓글 수집 중 오류가 발생했습니다.";
       setError(message);
       setCommentStatus("partial");
       toast.error(message, { id: toastId });
     } finally {
-      setCollectingComments(false);
+      if (collectionRunRef.current === runId) {
+        setCollectingComments(false);
+      }
     }
   }
 
@@ -415,7 +454,14 @@ export default function YouTubeContentExpansionDashboard() {
     const pkg = buildPackage();
     if (!pkg) return;
     await navigator.clipboard.writeText(buildLaunchPrompt(pkg));
-    toast.success("시작 프롬프트를 복사했습니다. 통합 분석 패키지를 첨부한 ChatGPT Pro 채팅에 붙여넣어주세요.");
+    toast.success("정밀 연구 프롬프트를 복사했습니다. 통합 분석 패키지를 첨부한 ChatGPT Pro 채팅에 붙여넣어주세요.");
+  }
+
+  async function copyQuickRecommendationPrompt() {
+    const pkg = buildPackage();
+    if (!pkg) return;
+    await navigator.clipboard.writeText(buildQuickRecommendationPrompt(pkg));
+    toast.success("댓글 기반 빠른 추천 프롬프트를 복사했습니다. 같은 통합 분석 패키지를 첨부한 ChatGPT Pro 채팅에 붙여넣어주세요.");
   }
 
   return (
@@ -587,20 +633,20 @@ export default function YouTubeContentExpansionDashboard() {
                 <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="font-semibold">댓글 + 답글 전체 수집</h3>
-                      <p className="mt-1 text-sm text-zinc-500">페이지네이션과 답글 추가 조회를 끝까지 진행합니다.</p>
+                      <h3 className="font-semibold">댓글 + 답글 자동 수집</h3>
+                      <p className="mt-1 text-sm text-zinc-500">영상을 선택하면 자동으로 전체 댓글과 답글을 끝까지 수집합니다.</p>
                     </div>
                   </div>
                   <div className="mt-4 flex gap-2">
                     <button
                       type="button"
-                      onClick={collectAllComments}
+                      onClick={() => void collectAllComments()}
                       disabled={collectingComments}
                       className="flex-1 rounded-xl bg-zinc-100 px-4 py-2.5 text-sm font-semibold text-zinc-950 disabled:opacity-40"
                     >
                       <span className="inline-flex items-center justify-center gap-2">
                         {collectingComments ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-950" /> : null}
-                        {collectingComments ? `수집 중... ${commentProgress.toLocaleString()}개` : comments.length ? "처음부터 다시 수집" : "전체 수집"}
+                        {collectingComments ? `자동 수집 중... ${commentProgress.toLocaleString()}개` : "댓글 다시 수집"}
                       </span>
                     </button>
                     {collectingComments ? (
@@ -750,9 +796,15 @@ export default function YouTubeContentExpansionDashboard() {
                   </ol>
                 </div>
 
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="mt-4 grid gap-3 lg:grid-cols-3">
                   <button type="button" onClick={downloadChatGPTBundle} className="rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white hover:bg-red-500">① 통합 분석 패키지</button>
-                  <button type="button" onClick={copyLaunchPrompt} className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-semibold text-zinc-100 hover:border-zinc-600">② 시작 프롬프트 복사</button>
+                  <button type="button" onClick={copyLaunchPrompt} className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-semibold text-zinc-100 hover:border-zinc-600">② 정밀 연구 프롬프트 복사</button>
+                  <button type="button" onClick={copyQuickRecommendationPrompt} className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-semibold text-zinc-100 hover:border-zinc-600">③ 댓글 기반 빠른 추천 프롬프트</button>
+                </div>
+
+                <div className="mt-3 grid gap-3 text-xs leading-5 text-zinc-500 md:grid-cols-2">
+                  <div className="rounded-xl border border-zinc-900 bg-black/20 p-3"><strong className="text-zinc-300">정밀 연구</strong><br />인터뷰·외부 검색·경쟁 검증을 거쳐 후보를 줄이고 선택 플랫폼용 제작 Brief까지 만듭니다.</div>
+                  <div className="rounded-xl border border-zinc-900 bg-black/20 p-3"><strong className="text-zinc-300">빠른 추천</strong><br />영상 정보와 댓글 전체를 1차 필터링해, 반복 질문과 실제 궁금증 기반의 후속 콘텐츠 리스트를 빠르게 봅니다.</div>
                 </div>
 
                 <details className="mt-4 rounded-2xl border border-zinc-900 bg-black/20 p-4">

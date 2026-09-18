@@ -32,6 +32,44 @@ const platformGuides: Record<string, string> = {
 - 롱폼 제목을 짧게 줄인 복제품은 후보에서 탈락시킨다.`,
 };
 
+const platformDeliverableGuides: Record<string, string> = {
+  wordpress: `WordPress / Google SEO 최종 산출물
+- 핵심 검색 의도와 대상 검색자
+- 메인 검색어와 보조 질문군
+- SEO 제목 후보, H1, 메타 설명
+- H2/H3 전체 목차와 각 섹션의 답변 목적
+- 경쟁 문서와 달라야 하는 고유 정보·사례·전문가 근거
+- FAQ 후보와 내부 링크로 이어질 후속 글
+- CTA와 전환 위치
+- 단순 키워드 반복이 아닌 검색 의도 충족 전략`,
+  "naver-blog": `네이버 블로그 최종 산출물
+- 네이버에서 예상되는 검색 상황과 독자 맥락
+- 실제 사용자가 쓸 법한 검색 표현과 제목 후보
+- 도입부 흐름, 본문 소제목, 이미지·도표·경험/전문가 정보 배치
+- 정보 탐색에서 상담/다음 글로 이어지는 자연스러운 흐름
+- 관련 포스트 확장 주제
+- 네이버용 CTA와 과도한 키워드 반복을 피한 발견 전략`,
+  youtube: `YouTube 최종 산출물
+- 이 영상이 Search / Browse / Suggested 중 어디에서 클릭될지
+- 제목 후보 5~10개와 각 제목이 약속하는 것
+- 썸네일 콘셉트 3~5개: 문구, 시각 요소, 제목과의 역할 분담
+- 첫 30~60초 Hook과 시청자가 계속 봐야 하는 이유
+- 전체 영상 구성과 각 구간의 역할
+- 실제 근거·사례·검사 장면 등을 넣을 위치
+- 이탈 위험 구간과 방지 장치
+- CTA, 엔드스크린, 다음 영상 연결
+- 검색/추천 발견 전략과 시리즈 확장`,
+  "youtube-shorts": `YouTube Shorts 최종 산출물
+- 한 Shorts에서 해결할 단 하나의 질문 또는 오해
+- 첫 1~3초 Hook
+- 15~60초 기준 장면/대사 흐름
+- 화면 자막 핵심 문구와 시각적 전환 포인트
+- 제목/캡션 후보
+- 결론을 숨기지 않으면서 유지율을 만드는 정보 순서
+- 댓글 유도 또는 롱폼 연결 CTA
+- 같은 소재를 롱폼 복제품으로 만들지 않는 차별점`,
+};
+
 const goalGuides: Record<string, string> = {
   "overall-followup":
     "원본의 다음 단계가 될 수 있는 심화·인접 질문·오해·비교·결정·사례·후속 행동을 폭넓게 보되, 증거가 없는 가지는 만들지 않는다.",
@@ -77,6 +115,9 @@ export function buildMasterPrompt(pkg: ResearchPackage) {
   const goalLines = pkg.settings.goals
     .map((goal) => `- ${goal}: ${goalGuides[goal]}`)
     .join("\n");
+  const deliverableLines = pkg.settings.platforms
+    .map((platform) => `### ${platform}\n${platformDeliverableGuides[platform]}`)
+    .join("\n\n");
 
   return `# CONTENT EXPANSION RESEARCH PROTOCOL
 
@@ -329,32 +370,41 @@ ${pkg.settings.includeCompetitorResearch ? "경쟁 콘텐츠 조사는 ON이다.
 - 이 콘텐츠의 역할
 - 다음으로 이어질 시리즈 경로
 
-**3. 마지막에 '보류·탈락한 후보'를 별도로 요약한다.**
+**3. 후보별 상세 설명 뒤에는 반드시 '선택 플랫폼용 제작 미리보기'를 붙인다.**
+- 사용자가 선택한 플랫폼에서 실제로 어떤 형태로 만들어질지 보여준다.
+- YouTube라면 제목 방향, 썸네일 방향, 첫 Hook, 영상 구조를 짧게 보여준다.
+- YouTube Shorts라면 첫 1~3초 Hook, 핵심 메시지, 짧은 장면 흐름을 보여준다.
+- WordPress라면 검색 의도, SEO 제목, 핵심 목차를 보여준다.
+- 네이버 블로그라면 검색 상황, 제목, 본문 흐름, 이미지/경험 정보 배치 방향을 보여준다.
+- 여러 플랫폼이 선택됐다면 플랫폼별로 섹션을 나누고 같은 문장을 복사해 붙이지 않는다.
+
+**4. 마지막에 '보류·탈락한 후보'를 별도로 요약한다.**
 - 왜 보류/탈락했는지 한 줄씩 정리한다.
 - 사용자가 이전 후보로 돌아가고 싶을 때 ID로 다시 선택할 수 있게 한다.
 
 좋은 후보가 없다면 리스트를 억지로 채우지 말고, 하단에서 왜 더 확장하지 않는 편이 좋은지 설명한다.
 
-## Phase 13 — Final Production Brief
-사용자가 Finalist를 선택한 뒤에만 제작 Brief를 완성한다.
+## Phase 13 — 선택 플랫폼용 최종 제작 결과물
+사용자가 최종 후보를 선택하면 연구 설명으로 끝내지 말고 **선택한 플랫폼에서 바로 제작에 들어갈 수 있는 최종 결과물**을 만든다.
 
-선택 플랫폼별로 최소 다음을 포함한다.
+공통으로 먼저 다음을 짧게 정리한다.
 - 최종 Topic / Angle / Audience
 - 해결하려는 질문
-- Evidence Map
-- 검색/시청 Intent
-- 차별화 포인트
-- Core Promise
-- 제목 후보와 각각의 Promise 차이
-- 썸네일 컨셉(YouTube) 또는 검색 제목/문서 구조(블로그)
-- 첫 Hook / 오프닝 설계
-- 전체 구성과 각 구간의 역할
-- 반드시 포함해야 할 사실/사례/주의점
-- 예상 이탈/반론 지점과 보완법
-- CTA
-- 플랫폼 발견/SEO 전략
-- 시리즈 확장 경로
-- 다음 2차·3차 후보와 연결 논리
+- 핵심 근거와 차별화 포인트
+- 이 콘텐츠의 역할
+
+그 다음 아래 선택 플랫폼 규격을 그대로 따른다.
+
+${deliverableLines || "플랫폼이 선택되지 않았다. 최종 제작 전에 사용자에게 플랫폼을 확인한다."}
+
+### 여러 플랫폼이 선택된 경우
+- 하나의 범용 Brief를 만든 뒤 이름만 바꾸지 않는다.
+- 같은 Root Topic이어도 각 플랫폼의 검색/소비 방식에 맞게 제목, Hook, 구조, 깊이, CTA를 별도로 설계한다.
+- 각 플랫폼 결과는 독립적으로 바로 제작에 사용할 수 있어야 한다.
+
+### 종료 조건
+최종 답변은 조사 결과나 Candidate Ledger로 끝내지 않는다.
+사용자가 Finalist를 고른 뒤에는 반드시 위 플랫폼별 제작 결과물을 완성해야 이번 세션이 끝난다.
 
 # 시작 명령
 첨부 데이터의 무결성을 확인한 뒤 **첫 응답에서 Phase 1~5까지 진행한다.**
@@ -368,7 +418,73 @@ ${pkg.settings.includeCompetitorResearch ? "경쟁 콘텐츠 조사는 ON이다.
 즉, 사용자가 긴 분석을 전부 읽기 전에 '현재 어떤 콘텐츠 후보가 보이는지'부터 먼저 볼 수 있게 한다.
 단, 이 1차 목록은 **최종 추천이나 제작 순위가 아니다.** 인터뷰와 외부 검색을 거치면서 후보가 사라지거나 새로 생길 수 있다.
 
-이후 인터뷰와 외부 검증이 끝나 Phase 12에 도달하면 다시 한 번 **최종 후보 리스트를 맨 위에 먼저 보여준 뒤**, 하단에서 상세 이유를 설명한다.`;
+이후 인터뷰와 외부 검증이 끝나 Phase 12에 도달하면 다시 한 번 **최종 후보 리스트를 맨 위에 먼저 보여준 뒤**, 하단에서 상세 이유와 **선택 플랫폼용 제작 미리보기**를 보여준다. 사용자가 후보를 선택하면 Phase 13에서 반드시 선택 플랫폼 규격의 최종 제작 결과물까지 완성한다.`;
+}
+
+export function buildQuickRecommendationPrompt(pkg: ResearchPackage) {
+  const manifest = evidenceManifest(pkg);
+  const platformOutputs = pkg.settings.platforms
+    .map((platform) => `### ${platform}\n${platformDeliverableGuides[platform]}`)
+    .join("\n\n");
+
+  return `첨부한 youtube-chatgpt-pro-bundle-${pkg.video.id}.md 파일을 읽고 **댓글 기반 빠른 후속 콘텐츠 추천**만 수행해줘.
+
+이 작업은 정밀 연구가 아니다. 인터뷰와 외부 검색으로 오래 좁혀가기 전에, 원본 영상 정보와 수집된 댓글/답글 전체에서 실제 시청자 수요를 빠르게 1차 필터링해 후속 콘텐츠 후보를 보는 단계다.
+
+## 데이터 확인
+- Video ID: ${manifest.videoId}
+- 원본 영상: ${manifest.videoTitle}
+- 수집 댓글+답글: ${manifest.collectedCommentRecords.toLocaleString()}개
+- 최상위 댓글: ${manifest.topLevelComments.toLocaleString()}개
+- 답글: ${manifest.replies.toLocaleString()}개
+- 채널 과거 영상: ${manifest.channelHistoryVideos.toLocaleString()}개
+- 영상 대본: ${manifest.transcriptStatus}
+- 선택 플랫폼: ${pkg.settings.platforms.join(", ") || "미선택"}
+
+파일을 읽을 수 없거나 FULL RAW COMMENT CORPUS가 없으면 추천을 시작하지 말고 알려줘.
+
+## 1차 필터 규칙
+1. 수집된 댓글 전체를 읽고, 표현이 달라도 같은 궁금증이면 의미 단위로 묶는다.
+2. 특히 많이 묻는 질문, 여러 사람이 반복하는 질문, 비교/선택, 불안, 다음 행동, 추가 설명 요청, 큰 오해를 우선 신호로 본다.
+3. 감사/응원/이모지/단순 감탄/스팸/영상과 무관한 대화는 콘텐츠 근거에서 제외한다.
+4. 반복 횟수만 많다고 무조건 추천하지 않는다. 원본과 자연스럽게 이어지고 실제로 한 편의 콘텐츠로 해결할 가치가 있어야 한다.
+5. 채널 과거 영상과 사실상 같은 주제면 중복 위험을 표시하고, 새로운 질문·상황·각도가 없으면 제외한다.
+6. 대본이 없으면 원본 영상에서 이미 답했는지 추측하지 않는다.
+7. 개수를 채우지 않는다. 가치 있는 후보가 3개면 3개만, 없으면 0개라고 말한다.
+8. 이 빠른 모드에서는 외부 검색을 했다고 가정하지 않는다. 검색 검증 전 후보라는 점을 명확히 한다.
+
+## 출력 순서
+### 1. 댓글 기반 빠른 추천 리스트
+가장 먼저 리스트만 보여준다.
+각 줄은 다음 형식이다.
+- QV-001 — 콘텐츠 주제
+- QV-002 — 콘텐츠 주제
+
+제작 순위를 임의로 확정하지 말고, 필요하면 댓글 근거가 강한 후보/새로운 후보처럼 성격만 표시한다.
+
+### 2. 후보별 1차 근거
+각 후보마다 짧게 정리한다.
+- 시청자가 실제로 궁금해한 핵심 질문
+- 관련 댓글 수와 고유 작성자 수(정확히 계산 가능한 경우)
+- 대표 댓글 ID 2~5개
+- 왜 별도 콘텐츠로 만들 가치가 있는지
+- 기존 채널과의 중복 위험
+- 1차 판단: 유지 / 보류 / 제외 검토
+
+### 3. 선택 플랫폼에서 바로 보이는 형태
+후보마다 사용자가 선택한 플랫폼에 맞는 **가벼운 제작 미리보기**를 붙인다. 긴 완성 원고가 아니라, 이 주제가 해당 플랫폼에서 실제로 어떻게 보일지 판단할 수 있을 정도로 만든다.
+
+${platformOutputs || "플랫폼이 선택되지 않았다. 사용자에게 어떤 플랫폼용 결과를 원하는지 먼저 확인한다."}
+
+여러 플랫폼이 선택되면 플랫폼별로 나누고 제목만 바꾼 복제품을 만들지 않는다.
+
+### 4. 제외한 댓글 신호
+추천에 쓰지 않은 대표적인 반응 유형과 제외 이유를 짧게 정리한다.
+
+### 5. 정밀 연구로 넘겨볼 후보
+외부 검색, 경쟁 검증, 인터뷰까지 해볼 가치가 특히 있는 후보가 있다면 ID만 별도로 표시한다. 없으면 없다고 말한다.
+
+중요: 긴 분석 설명보다 **추천 리스트가 항상 맨 위**에 먼저 보여야 한다.`;
 }
 
 export function buildChatGPTProBundle(pkg: ResearchPackage) {
@@ -377,5 +493,5 @@ export function buildChatGPTProBundle(pkg: ResearchPackage) {
 
 export function buildLaunchPrompt(pkg: ResearchPackage) {
   const manifest = evidenceManifest(pkg);
-  return `첨부한 \`youtube-chatgpt-pro-bundle-${pkg.video.id}.md\` 파일을 이 세션의 단일 Research Bundle로 사용해줘.\n\n먼저 파일 안의 **PART A — EXECUTION PROTOCOL**과 **PART B — RESEARCH EVIDENCE**를 끝까지 읽고, Package Integrity Gate부터 수행해.\n\n내가 기대하는 데이터는 다음과 같아.\n- Video ID: ${manifest.videoId}\n- 수집 댓글+답글: ${manifest.collectedCommentRecords.toLocaleString()}개\n- 최상위 댓글: ${manifest.topLevelComments.toLocaleString()}개\n- 답글: ${manifest.replies.toLocaleString()}개\n- 채널 과거 영상: ${manifest.channelHistoryVideos.toLocaleString()}개\n- Transcript: ${manifest.transcriptStatus}\n\n첨부 파일이 없거나 위 데이터와 실제 파일이 일치하지 않으면 분석을 시작하지 말고 누락된 항목을 먼저 알려줘.\n무결성이 확인되면 프로토콜대로 첫 응답에서 Phase 1~5까지 진행해. **가장 먼저 검증 전 1차 콘텐츠 후보 리스트를 보여주고**, 그 아래에 분석 근거와 쉬운 한글 인터뷰 질문을 이어서 보여줘. 이 1차 리스트를 최종 추천이나 제작 순위처럼 표현하지는 마.`;
+  return `첨부한 \`youtube-chatgpt-pro-bundle-${pkg.video.id}.md\` 파일을 이 세션의 단일 Research Bundle로 사용해줘.\n\n먼저 파일 안의 **PART A — EXECUTION PROTOCOL**과 **PART B — RESEARCH EVIDENCE**를 끝까지 읽고, Package Integrity Gate부터 수행해.\n\n내가 기대하는 데이터는 다음과 같아.\n- Video ID: ${manifest.videoId}\n- 수집 댓글+답글: ${manifest.collectedCommentRecords.toLocaleString()}개\n- 최상위 댓글: ${manifest.topLevelComments.toLocaleString()}개\n- 답글: ${manifest.replies.toLocaleString()}개\n- 채널 과거 영상: ${manifest.channelHistoryVideos.toLocaleString()}개\n- Transcript: ${manifest.transcriptStatus}\n\n첨부 파일이 없거나 위 데이터와 실제 파일이 일치하지 않으면 분석을 시작하지 말고 누락된 항목을 먼저 알려줘.\n무결성이 확인되면 프로토콜대로 첫 응답에서 Phase 1~5까지 진행해. **가장 먼저 검증 전 1차 콘텐츠 후보 리스트를 보여주고**, 그 아래에 분석 근거와 쉬운 한글 인터뷰 질문을 이어서 보여줘. 이 1차 리스트를 최종 추천이나 제작 순위처럼 표현하지는 마. 최종 후보를 고른 뒤에는 연구 설명으로 끝내지 말고 내가 선택한 플랫폼에 맞는 실제 제작 결과물까지 완성해.`;
 }
