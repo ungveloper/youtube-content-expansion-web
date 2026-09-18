@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { GOAL_OPTIONS, PLATFORM_OPTIONS } from "@/lib/content-expansion/constants";
-import { buildMasterPrompt } from "@/lib/content-expansion/prompt-builder";
+import { buildChatGPTProBundle, buildLaunchPrompt } from "@/lib/content-expansion/prompt-builder";
 import {
   createResearchPackage,
   researchPackageToMarkdown,
@@ -308,11 +308,21 @@ export default function YouTubeContentExpansionDashboard() {
     }
   }
 
-  async function copyPrompt() {
+  function downloadChatGPTBundle() {
     const pkg = buildPackage();
     if (!pkg) return;
-    await navigator.clipboard.writeText(buildMasterPrompt(pkg));
-    window.alert("ChatGPT Pro용 단계형 프롬프트를 복사했습니다.");
+    downloadText(
+      `youtube-chatgpt-pro-bundle-${pkg.video.id}.md`,
+      buildChatGPTProBundle(pkg),
+      "text/markdown;charset=utf-8",
+    );
+  }
+
+  async function copyLaunchPrompt() {
+    const pkg = buildPackage();
+    if (!pkg) return;
+    await navigator.clipboard.writeText(buildLaunchPrompt(pkg));
+    window.alert("통합 분석 패키지를 ChatGPT Pro에 첨부한 뒤 사용할 시작 프롬프트를 복사했습니다.");
   }
 
   return (
@@ -591,7 +601,7 @@ export default function YouTubeContentExpansionDashboard() {
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-red-600 text-sm font-bold text-white">4</span>
                 <div>
                   <h2 className="font-semibold">Research Package & Prompt</h2>
-                  <p className="text-sm text-zinc-500">파일을 ChatGPT Pro에 첨부하고 단계형 프롬프트를 붙여넣어 인터뷰를 시작합니다.</p>
+                  <p className="text-sm text-zinc-500">작업 프로토콜과 실제 Evidence 전체를 한 파일로 묶어 ChatGPT Pro에 전달합니다.</p>
                 </div>
               </div>
 
@@ -610,18 +620,35 @@ export default function YouTubeContentExpansionDashboard() {
                   <div className="rounded-2xl bg-zinc-900/80 p-4">
                     <p className="text-xs text-zinc-500">Transcript</p>
                     <p className="mt-2 text-2xl font-bold">{transcript.trim() ? "READY" : "MISSING"}</p>
-                    <p className="mt-1 text-xs text-zinc-600">없어도 한계를 명시하고 진행</p>
+                    <p className="mt-1 text-xs text-zinc-600">없으면 영상 발화 내용은 미검증 상태</p>
                   </div>
                 </div>
 
-                <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                  <button type="button" onClick={() => downloadPackage("json")} className="rounded-xl border border-zinc-800 px-4 py-3 text-sm font-semibold text-zinc-200 hover:border-zinc-700">Research Package JSON</button>
-                  <button type="button" onClick={() => downloadPackage("md")} className="rounded-xl border border-zinc-800 px-4 py-3 text-sm font-semibold text-zinc-200 hover:border-zinc-700">Research Package Markdown</button>
-                  <button type="button" onClick={copyPrompt} className="rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white hover:bg-red-500">ChatGPT Pro 프롬프트 복사</button>
+                {!transcript.trim() ? (
+                  <div className="mt-5 rounded-2xl border border-amber-900/60 bg-amber-950/20 p-4 text-sm leading-6 text-amber-200/90">
+                    <strong className="font-semibold text-amber-200">영상 본문 Evidence가 아직 없습니다.</strong>
+                    <span className="mt-1 block text-amber-200/70">
+                      현재 확보된 영상 정보는 제목·설명·메타데이터와 댓글 반응입니다. Transcript 없이 영상에서 실제로 한 말을 추정하지 않도록 통합 패키지에 제한 규칙이 포함됩니다. 영상 내용까지 완전 분석하려면 TXT/SRT/VTT 대본을 추가하세요.
+                    </span>
+                  </div>
+                ) : null}
+
+                <div className="mt-6 rounded-2xl border border-red-950/70 bg-red-950/20 p-4">
+                  <p className="text-sm font-semibold text-red-200">권장 사용 순서</p>
+                  <p className="mt-2 text-xs leading-6 text-red-200/70">
+                    ① 통합 분석 패키지 다운로드 → ② ChatGPT Pro 새 채팅에 .md 파일 첨부 → ③ 시작 프롬프트 복사 후 전송. 통합 패키지 안에는 실행 프로토콜, 영상 메타/설명, 채널 과거 영상, Transcript, 댓글·답글 전체 원문이 함께 들어갑니다.
+                  </p>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <button type="button" onClick={downloadChatGPTBundle} className="rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white hover:bg-red-500">① 통합 분석 패키지</button>
+                  <button type="button" onClick={copyLaunchPrompt} className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-semibold text-zinc-100 hover:border-zinc-600">② 시작 프롬프트 복사</button>
+                  <button type="button" onClick={() => downloadPackage("md")} className="rounded-xl border border-zinc-800 px-4 py-3 text-sm font-semibold text-zinc-300 hover:border-zinc-700">Raw Markdown</button>
+                  <button type="button" onClick={() => downloadPackage("json")} className="rounded-xl border border-zinc-800 px-4 py-3 text-sm font-semibold text-zinc-300 hover:border-zinc-700">Raw JSON</button>
                 </div>
 
                 <div className="mt-6 rounded-2xl border border-zinc-900 bg-black/20 p-4 text-xs leading-6 text-zinc-500">
-                  <strong className="text-zinc-300">Workflow:</strong> Evidence Understanding → Audience Question Clustering → Needs/Gap → Candidate Pool → Anti-Generic Gate → Interview Gate → External Research → Re-evaluation → Platform Divergence Gate → Candidate Ledger → Finalists → Production Brief
+                  <strong className="text-zinc-300">Quality Gates:</strong> Package Integrity → Exhaustive Comment Pass → Audience Question Clustering → Anti-Generic Gate → Interview Gate → External Research → Candidate Re-evaluation → Platform Divergence → Candidate Ledger → Finalists → Production Brief
                 </div>
               </div>
             </section>
