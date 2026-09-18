@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { GOAL_OPTIONS, PLATFORM_OPTIONS } from "@/lib/content-expansion/constants";
 import { buildChatGPTProBundle, buildLaunchPrompt } from "@/lib/content-expansion/prompt-builder";
 import {
@@ -22,6 +23,31 @@ const sourceModes: Array<{ id: SourceMode; label: string; description: string }>
   { id: "video", label: "영상", description: "영상 ID 또는 URL" },
   { id: "discover", label: "Discovery", description: "조회 시점의 인기 레퍼런스 탐색" },
 ];
+
+function detectSourceModeFromInput(input: string): Exclude<SourceMode, "discover"> | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return "video";
+  if (/^UC[a-zA-Z0-9_-]{22}$/.test(trimmed) || trimmed.startsWith("@")) return "channel";
+
+  try {
+    const url = new URL(trimmed);
+    const host = url.hostname.replace(/^www\./, "");
+    if (host === "youtu.be") return "video";
+    if (host !== "youtube.com" && !host.endsWith(".youtube.com")) return null;
+
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (url.searchParams.get("v")) return "video";
+    if (["shorts", "embed", "live"].includes(parts[0] ?? "")) return "video";
+    if ((parts[0] ?? "").startsWith("@")) return "channel";
+    if (["channel", "c", "user"].includes(parts[0] ?? "")) return "channel";
+  } catch {
+    return null;
+  }
+
+  return null;
+}
 
 function formatNumber(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
@@ -167,17 +193,20 @@ export default function YouTubeContentExpansionDashboard() {
       setChannel(channelData.channel);
       setChannelHistory(historyData.videos);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "채널 과거 콘텐츠를 불러오지 못했습니다.");
+      const message = err instanceof Error ? err.message : "채널 과거 콘텐츠를 불러오지 못했습니다.";
+      setError(message);
+      toast.error(message);
     }
   }
 
-  function selectVideo(video: YouTubeVideo) {
+  function selectVideo(video: YouTubeVideo, contextMode: SourceMode = sourceMode) {
     setSelectedVideo(video);
     setComments([]);
     setCommentProgress(0);
     setCommentStatus("not_started");
     setTranscript("");
-    if (sourceMode === "channel") {
+    toast.success("분석할 영상을 선택했습니다. 댓글과 답글 전체 수집을 진행해주세요.");
+    if (contextMode === "channel") {
       setChannelHistory(videos.filter((item) => item.channelId === video.channelId));
     } else {
       setChannelHistory([]);
@@ -186,13 +215,28 @@ export default function YouTubeContentExpansionDashboard() {
   }
 
   async function searchSource() {
+    const resolvedMode =
+      sourceMode === "discover" ? "discover" : detectSourceModeFromInput(query) ?? sourceMode;
+    const toastId = toast.loading(
+      resolvedMode === "discover" ? "인기 레퍼런스를 탐색하고 있습니다." : "YouTube 데이터를 불러오고 있습니다.",
+    );
+
+    if (resolvedMode !== sourceMode && resolvedMode !== "discover") {
+      setSourceMode(resolvedMode);
+      toast.info(
+        resolvedMode === "video"
+          ? "입력한 URL을 영상 주소로 자동 인식했습니다."
+          : "입력한 URL을 채널 주소로 자동 인식했습니다.",
+      );
+    }
+
     setLoading(true);
     setError("");
     setSelectedVideo(null);
     setChannelHistory([]);
     setComments([]);
     try {
-      if (sourceMode === "channel") {
+      if (resolvedMode === "channel") {
         const channelData = await readJson(
           await fetch(`/api/youtube/channel?input=${encodeURIComponent(query)}`),
         );
@@ -201,20 +245,25 @@ export default function YouTubeContentExpansionDashboard() {
           await fetch(`/api/youtube/channel-videos?channelId=${channelData.channel.id}&limit=100`),
         );
         setVideos(videoData.videos);
-      } else if (sourceMode === "video") {
+        toast.success(`채널 영상 ${videoData.videos.length}개를 불러왔습니다.`, { id: toastId });
+      } else if (resolvedMode === "video") {
         const data = await readJson(
           await fetch(`/api/youtube/video?input=${encodeURIComponent(query)}`),
         );
         setVideos([data.video]);
-        selectVideo(data.video);
+        selectVideo(data.video, resolvedMode);
+        toast.success("영상 정보를 불러왔습니다.", { id: toastId });
       } else {
         const data = await readJson(
           await fetch(`/api/youtube/discover?query=${encodeURIComponent(query)}&limit=100&period=${discoveryPeriod}`),
         );
         setVideos(data.videos);
+        toast.success(`레퍼런스 영상 ${data.videos.length}개를 찾았습니다.`, { id: toastId });
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "조회 중 오류가 발생했습니다.");
+      const message = err instanceof Error ? err.message : "조회 중 오류가 발생했습니다.";
+      setError(message);
+      toast.error(message, { id: toastId });
     } finally {
       setLoading(false);
     }
@@ -222,6 +271,7 @@ export default function YouTubeContentExpansionDashboard() {
 
   async function collectAllComments() {
     if (!selectedVideo) return;
+    const toastId = toast.loading("댓글과 답글 전체 수집을 시작했습니다.");
     setCollectingComments(true);
     setError("");
     setComments([]);
@@ -245,9 +295,19 @@ export default function YouTubeContentExpansionDashboard() {
         setCommentProgress(collected.length);
         pageToken = data.nextPageToken ?? "";
       } while (pageToken && !stopCollectionRef.current);
-      setCommentStatus(stopCollectionRef.current ? "partial" : "complete");
+
+      if (stopCollectionRef.current) {
+        setCommentStatus("partial");
+        toast.warning(`댓글 수집을 중지했습니다. 현재 ${collected.length.toLocaleString()}개가 저장되어 있습니다.`, { id: toastId });
+      } else {
+        setCommentStatus("complete");
+        toast.success(`댓글과 답글 ${collected.length.toLocaleString()}개 수집을 완료했습니다. 다음 단계가 열렸습니다.`, { id: toastId });
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "댓글 수집 중 오류가 발생했습니다.");
+      const message = err instanceof Error ? err.message : "댓글 수집 중 오류가 발생했습니다.";
+      setError(message);
+      setCommentStatus("partial");
+      toast.error(message, { id: toastId });
     } finally {
       setCollectingComments(false);
     }
@@ -262,11 +322,15 @@ export default function YouTubeContentExpansionDashboard() {
   }
 
   function toggleGoal(goal: ResearchGoal) {
-    setGoals((current) =>
-      current.includes(goal)
+    setGoals((current) => {
+      const next = current.includes(goal)
         ? current.filter((item) => item !== goal)
-        : [...current, goal],
-    );
+        : [...current, goal];
+      if (next.length >= 4 && next.length > current.length) {
+        toast.info("조사 목적을 많이 선택하면 ChatGPT Pro 인터뷰에서 우선순위를 먼저 정리하도록 합니다.");
+      }
+      return next;
+    });
   }
 
   function buildPackage() {
@@ -306,6 +370,7 @@ export default function YouTubeContentExpansionDashboard() {
     } else {
       downloadText(`${filenameBase}.md`, researchPackageToMarkdown(pkg), "text/markdown;charset=utf-8");
     }
+    toast.success(`Raw ${format === "json" ? "JSON" : "Markdown"} 파일을 다운로드했습니다.`);
   }
 
   function downloadChatGPTBundle() {
@@ -316,13 +381,14 @@ export default function YouTubeContentExpansionDashboard() {
       buildChatGPTProBundle(pkg),
       "text/markdown;charset=utf-8",
     );
+    toast.success("ChatGPT Pro 통합 분석 패키지를 다운로드했습니다. 새 채팅에 이 파일을 첨부해주세요.");
   }
 
   async function copyLaunchPrompt() {
     const pkg = buildPackage();
     if (!pkg) return;
     await navigator.clipboard.writeText(buildLaunchPrompt(pkg));
-    window.alert("통합 분석 패키지를 ChatGPT Pro에 첨부한 뒤 사용할 시작 프롬프트를 복사했습니다.");
+    toast.success("시작 프롬프트를 복사했습니다. 통합 분석 패키지를 첨부한 ChatGPT Pro 채팅에 붙여넣어주세요.");
   }
 
   return (
@@ -374,9 +440,9 @@ export default function YouTubeContentExpansionDashboard() {
               onKeyDown={(event) => event.key === "Enter" && searchSource()}
               placeholder={
                 sourceMode === "channel"
-                  ? "@handle 또는 YouTube 채널 URL"
+                  ? "채널 핸들/URL 또는 영상 URL — URL 종류 자동 감지"
                   : sourceMode === "video"
-                    ? "영상 ID 또는 YouTube URL"
+                    ? "영상 ID/URL 또는 채널 URL — URL 종류 자동 감지"
                     : "키워드 선택 입력 — 비워두면 광범위하게 탐색"
               }
               className="min-w-0 flex-1 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
@@ -406,7 +472,11 @@ export default function YouTubeContentExpansionDashboard() {
             <p className="mt-2 text-xs leading-5 text-zinc-600">
               Discovery는 기존 mostPopular 목록이 아니라 선택 기간 내 검색 API의 조회수 정렬을 이용한 레퍼런스 탐색입니다. 검색 API 할당량을 사용합니다.
             </p>
-          ) : null}
+          ) : (
+            <p className="mt-2 text-xs leading-5 text-zinc-600">
+              채널/영상 탭을 잘못 선택해도 괜찮습니다. YouTube URL 또는 ID/핸들 형식을 확인해 채널과 영상을 자동으로 구분합니다.
+            </p>
+          )}
           {error ? <div className="mt-4 rounded-xl border border-red-950 bg-red-950/30 px-4 py-3 text-sm text-red-300">{error}</div> : null}
         </section>
 
@@ -493,7 +563,10 @@ export default function YouTubeContentExpansionDashboard() {
                       <h3 className="font-semibold">댓글 + 답글 전체 수집</h3>
                       <p className="mt-1 text-sm text-zinc-500">페이지네이션과 답글 추가 조회를 끝까지 진행합니다.</p>
                     </div>
-                    <span className="rounded-lg bg-zinc-900 px-2.5 py-1 text-xs text-zinc-400">{commentProgress.toLocaleString()} records · {commentStatus}</span>
+                    <span className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-2.5 py-1 text-xs text-zinc-400">
+                      {collectingComments ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-zinc-600 border-t-zinc-100" /> : null}
+                      {commentProgress.toLocaleString()} records · {commentStatus}
+                    </span>
                   </div>
                   <div className="mt-4 flex gap-2">
                     <button
@@ -502,7 +575,10 @@ export default function YouTubeContentExpansionDashboard() {
                       disabled={collectingComments}
                       className="flex-1 rounded-xl bg-zinc-100 px-4 py-2.5 text-sm font-semibold text-zinc-950 disabled:opacity-40"
                     >
-                      {collectingComments ? "수집 중..." : comments.length ? "처음부터 다시 수집" : "전체 수집"}
+                      <span className="inline-flex items-center justify-center gap-2">
+                        {collectingComments ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-950" /> : null}
+                        {collectingComments ? `수집 중... ${commentProgress.toLocaleString()}개` : comments.length ? "처음부터 다시 수집" : "전체 수집"}
+                      </span>
                     </button>
                     {collectingComments ? (
                       <button
@@ -520,8 +596,8 @@ export default function YouTubeContentExpansionDashboard() {
               <div className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h3 className="font-semibold">Transcript</h3>
-                    <p className="mt-1 text-sm text-zinc-500">공식 API로 확보할 수 없는 경우 직접 붙여넣거나 SRT/VTT/TXT 파일을 불러옵니다.</p>
+                    <h3 className="font-semibold">영상 내용(대본)</h3>
+                    <p className="mt-1 text-sm text-zinc-500">영상에서 실제로 어떤 말을 했는지까지 분석하려면 대본이 필요합니다. 자동으로 가져올 수 없는 영상은 직접 붙여넣거나 TXT/SRT/VTT 파일을 불러오세요.</p>
                   </div>
                   <label className="cursor-pointer rounded-xl border border-zinc-800 px-3 py-2 text-xs text-zinc-300 hover:border-zinc-700">
                     파일 불러오기
@@ -531,7 +607,10 @@ export default function YouTubeContentExpansionDashboard() {
                       className="hidden"
                       onChange={async (event) => {
                         const file = event.target.files?.[0];
-                        if (file) setTranscript(await file.text());
+                        if (file) {
+                          setTranscript(await file.text());
+                          toast.success(`영상 대본 파일을 불러왔습니다: ${file.name}`);
+                        }
                       }}
                     />
                   </label>
@@ -539,12 +618,14 @@ export default function YouTubeContentExpansionDashboard() {
                 <textarea
                   value={transcript}
                   onChange={(event) => setTranscript(event.target.value)}
-                  placeholder="영상 Transcript를 여기에 붙여넣으세요. 없어도 진행할 수 있으며, 프롬프트가 그 한계를 명시합니다."
+                  placeholder="영상에서 말한 내용을 여기에 붙여넣으세요. 대본이 없어도 댓글 중심 분석은 가능하지만, 영상에서 실제로 말한 내용은 확인하지 않은 것으로 처리합니다."
                   className="mt-4 min-h-48 w-full resize-y rounded-xl border border-zinc-800 bg-zinc-900 p-4 text-sm leading-6 text-zinc-300 outline-none placeholder:text-zinc-600 focus:border-zinc-600"
                 />
               </div>
             </section>
 
+            {commentStatus === "complete" ? (
+              <>
             <section className="border-t border-zinc-900 py-8">
               <div className="mb-5 flex items-center gap-3">
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-zinc-100 text-sm font-bold text-zinc-950">3</span>
@@ -561,7 +642,10 @@ export default function YouTubeContentExpansionDashboard() {
                 ))}
               </div>
 
-              <h3 className="mb-3 mt-7 text-sm font-semibold text-zinc-300">조사 목적</h3>
+              <div className="mb-3 mt-7 flex flex-wrap items-end justify-between gap-2">
+                <h3 className="text-sm font-semibold text-zinc-300">조사 목적</h3>
+                <p className="text-xs text-zinc-600">복수 선택 가능 · 목적이 많을수록 인터뷰에서 우선순위를 먼저 정리합니다.</p>
+              </div>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {GOAL_OPTIONS.map((option) => (
                   <OptionCard key={option.id} selected={goals.includes(option.id)} title={option.label} description={option.description} onClick={() => toggleGoal(option.id)} />
@@ -618,8 +702,8 @@ export default function YouTubeContentExpansionDashboard() {
                     <p className="mt-1 truncate text-xs text-zinc-600">{platforms.join(", ") || "미선택"}</p>
                   </div>
                   <div className="rounded-2xl bg-zinc-900/80 p-4">
-                    <p className="text-xs text-zinc-500">Transcript</p>
-                    <p className="mt-2 text-2xl font-bold">{transcript.trim() ? "READY" : "MISSING"}</p>
+                    <p className="text-xs text-zinc-500">영상 내용(대본)</p>
+                    <p className="mt-2 text-2xl font-bold">{transcript.trim() ? "있음" : "없음"}</p>
                     <p className="mt-1 text-xs text-zinc-600">없으면 영상 발화 내용은 미검증 상태</p>
                   </div>
                 </div>
@@ -628,30 +712,51 @@ export default function YouTubeContentExpansionDashboard() {
                   <div className="mt-5 rounded-2xl border border-amber-900/60 bg-amber-950/20 p-4 text-sm leading-6 text-amber-200/90">
                     <strong className="font-semibold text-amber-200">영상 본문 Evidence가 아직 없습니다.</strong>
                     <span className="mt-1 block text-amber-200/70">
-                      현재 확보된 영상 정보는 제목·설명·메타데이터와 댓글 반응입니다. Transcript 없이 영상에서 실제로 한 말을 추정하지 않도록 통합 패키지에 제한 규칙이 포함됩니다. 영상 내용까지 완전 분석하려면 TXT/SRT/VTT 대본을 추가하세요.
+                      현재 확보된 영상 정보는 제목·설명·메타데이터와 댓글 반응입니다. 대본이 없으면 영상에서 실제로 한 말을 추정하지 않도록 통합 패키지에 제한 규칙이 포함됩니다. 영상의 발언 내용까지 분석하려면 TXT/SRT/VTT 대본을 추가하세요.
                     </span>
                   </div>
                 ) : null}
 
                 <div className="mt-6 rounded-2xl border border-red-950/70 bg-red-950/20 p-4">
                   <p className="text-sm font-semibold text-red-200">권장 사용 순서</p>
-                  <p className="mt-2 text-xs leading-6 text-red-200/70">
-                    ① 통합 분석 패키지 다운로드 → ② ChatGPT Pro 새 채팅에 .md 파일 첨부 → ③ 시작 프롬프트 복사 후 전송. 통합 패키지 안에는 실행 프로토콜, 영상 메타/설명, 채널 과거 영상, Transcript, 댓글·답글 전체 원문이 함께 들어갑니다.
-                  </p>
+                  <ol className="mt-3 space-y-3 text-xs leading-6 text-red-200/75">
+                    <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-500/15 font-semibold text-red-200">1</span><span><strong className="text-red-100">통합 분석 패키지 다운로드</strong><br />실행 프로토콜, 영상 정보·설명, 채널 과거 영상, 영상 대본(있는 경우), 댓글·답글 전체 원문이 한 .md 파일에 들어갑니다.</span></li>
+                    <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-500/15 font-semibold text-red-200">2</span><span><strong className="text-red-100">ChatGPT Pro에서 새 채팅 열기</strong><br />새 채팅을 열어 분석 세션을 분리합니다.</span></li>
+                    <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-500/15 font-semibold text-red-200">3</span><span><strong className="text-red-100">다운로드한 .md 파일 첨부</strong><br />ChatGPT Pro가 댓글 원문과 채널 이력을 실제 근거로 읽을 수 있게 합니다.</span></li>
+                    <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-500/15 font-semibold text-red-200">4</span><span><strong className="text-red-100">시작 프롬프트 복사 후 전송</strong><br />파일 무결성 검사부터 시작해 댓글 분석 → 인터뷰 → 외부 조사 → 후보 압축 순서로 진행합니다.</span></li>
+                  </ol>
                 </div>
 
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <button type="button" onClick={downloadChatGPTBundle} className="rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white hover:bg-red-500">① 통합 분석 패키지</button>
                   <button type="button" onClick={copyLaunchPrompt} className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-semibold text-zinc-100 hover:border-zinc-600">② 시작 프롬프트 복사</button>
-                  <button type="button" onClick={() => downloadPackage("md")} className="rounded-xl border border-zinc-800 px-4 py-3 text-sm font-semibold text-zinc-300 hover:border-zinc-700">Raw Markdown</button>
-                  <button type="button" onClick={() => downloadPackage("json")} className="rounded-xl border border-zinc-800 px-4 py-3 text-sm font-semibold text-zinc-300 hover:border-zinc-700">Raw JSON</button>
                 </div>
+
+                <details className="mt-4 rounded-2xl border border-zinc-900 bg-black/20 p-4">
+                  <summary className="cursor-pointer text-xs font-medium text-zinc-400">원본 데이터 파일이 필요할 때만 열기</summary>
+                  <p className="mt-2 text-xs leading-5 text-zinc-600">일반적인 ChatGPT Pro 분석에는 필요하지 않습니다. 백업·개발·직접 데이터 확인이 필요할 때만 사용하세요.</p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <button type="button" onClick={() => downloadPackage("md")} className="rounded-xl border border-zinc-800 px-4 py-3 text-sm font-semibold text-zinc-300 hover:border-zinc-700">Raw Markdown</button>
+                    <button type="button" onClick={() => downloadPackage("json")} className="rounded-xl border border-zinc-800 px-4 py-3 text-sm font-semibold text-zinc-300 hover:border-zinc-700">Raw JSON</button>
+                  </div>
+                </details>
 
                 <div className="mt-6 rounded-2xl border border-zinc-900 bg-black/20 p-4 text-xs leading-6 text-zinc-500">
                   <strong className="text-zinc-300">Quality Gates:</strong> Package Integrity → Exhaustive Comment Pass → Audience Question Clustering → Anti-Generic Gate → Interview Gate → External Research → Candidate Re-evaluation → Platform Divergence → Candidate Ledger → Finalists → Production Brief
                 </div>
               </div>
             </section>
+              </>
+            ) : (
+              <section className="border-t border-zinc-900 py-8">
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5 text-sm text-zinc-500">
+                  <div className="flex items-center gap-3">
+                    {collectingComments ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-300" /> : <span className="h-2 w-2 rounded-full bg-zinc-700" />}
+                    <span>{collectingComments ? "댓글과 답글을 수집하고 있습니다. 완료되면 Research 설정 단계가 자동으로 열립니다." : "Research 설정과 분석 패키지 생성은 댓글 수집을 완료한 뒤 열립니다."}</span>
+                  </div>
+                </div>
+              </section>
+            )}
           </>
         ) : null}
       </div>
