@@ -183,6 +183,33 @@ export default function YouTubeContentExpansionDashboard() {
     setError("");
   }
 
+  function handleQueryChange(value: string) {
+    setQuery(value);
+
+    // Discovery는 사용자가 직접 선택하는 탐색 모드이므로 자동 전환하지 않는다.
+    if (sourceMode === "discover") return;
+
+    const detectedMode = detectSourceModeFromInput(value);
+    if (!detectedMode || detectedMode === sourceMode) return;
+
+    setSourceMode(detectedMode);
+    setChannel(null);
+    setVideos([]);
+    setSelectedVideo(null);
+    setChannelHistory([]);
+    setComments([]);
+    setCommentProgress(0);
+    setCommentStatus("not_started");
+    setTranscript("");
+    setError("");
+
+    toast.info(
+      detectedMode === "video"
+        ? "영상 URL을 감지해 영상 탭으로 전환했습니다."
+        : "채널 URL을 감지해 채널 탭으로 전환했습니다.",
+    );
+  }
+
   async function loadChannelContext(video: YouTubeVideo) {
     if (!includeChannelHistory) return;
     try {
@@ -436,7 +463,7 @@ export default function YouTubeContentExpansionDashboard() {
           <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-zinc-950 p-4 sm:flex-row">
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => handleQueryChange(event.target.value)}
               onKeyDown={(event) => event.key === "Enter" && searchSource()}
               placeholder={
                 sourceMode === "channel"
